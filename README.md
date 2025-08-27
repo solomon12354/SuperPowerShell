@@ -36,6 +36,64 @@ This is a SuperShell, you can use this to do a lot of things
 
 ---
 
+## 🔑 建立自簽測試憑證 (.pfx)
+
+Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽憑證來簽署測試驅動。這裡示範 PowerShell 方式：
+
+### 1. 開啟 PowerShell（以系統管理員執行）
+### 2. 建立自簽名憑證
+####  建立自簽名憑證 (Code Signing)
+     ```powershell
+     $cert = New-SelfSignedCertificate `
+         -Type CodeSigningCert `
+         -Subject "CN=MyDriverCert" `
+         -KeyUsage DigitalSignature `
+         -CertStoreLocation "Cert:\LocalMachine\My"
+
+
+這會在 本機 My 憑證存放區 建立一個測試用憑證。
+
+### 3. 匯出成 PFX 檔案
+#### 請設定自己的安全密碼
+     ```powershell
+     $pwd = ConvertTo-SecureString -String "輸入你的密碼" -Force -AsPlainText
+
+#### 匯出 PFX 檔案
+     ```powershell
+     Export-PfxCertificate -Cert $cert -FilePath "C:\Path\To\MyDriver.pfx" -Password $pwd
+
+
+注意：密碼請自己設定，不要放在 GitHub 上。
+
+### 4. 安裝憑證到系統
+
+將剛剛建立的 PFX 憑證匯入到：
+
+受信任的根憑證授權單位 (Trusted Root Certification Authorities)
+
+受信任的發行者 (Trusted Publishers)
+
+可以用 PowerShell 或 certmgr.msc GUI 完成。
+
+### 5. 使用 SignTool 簽署驅動
+
+     ```powershell
+     signtool sign /v /f C:\Path\To\MyDriver.pfx /p "你的密碼" /tr http://timestamp.digicert.com /td sha256 /fd sha256 MyDriver.sys
+
+### 6. 驗證簽章
+
+     ```powershell
+     signtool verify /kp /v MyDriver.sys
+
+
+如果顯示 Successfully verified 就代表簽章完成，可以在測試模式下載入驅動。
+
+
+
+---
+
+
+
 ## 🚀 執行步驟
 
 1. **安裝並啟動測試模式（僅限教育用途！）**  
@@ -52,45 +110,6 @@ This is a SuperShell, you can use this to do a lot of things
    ```powershell
    Controller.exe
 
-
----
-
-## 🔑 驅動程式簽章 (Driver Signing)
-
-Windows 64 位元系統 禁止未簽章的驅動載入，因此需要簽章。
-
-### 方法一：測試簽章 (Test Signing)
-
-適合開發 / 教學環境：
-
-啟用測試模式（見上方步驟）。
-
-1. **建立一個自簽憑證：**
-   ```powershell
-   makecert -r -pe -ss TestCertStore -n "CN=MyDriverCert" MyDriverCert.cer
-   certmgr -add MyDriverCert.cer -s -r localMachine root
-   certmgr -add MyDriverCert.cer -s -r localMachine trustedpublisher
-
-
-2. **使用SignTool簽章：**
-   ```powershell
-   signtool sign /v /s TestCertStore /n MyDriverCert /t http://timestamp.digicert.com MyDriver.sys
-
-
-驅動即可在測試模式下正常載入。
-
-### 方法二：正式簽章 (正式上線用)
-
-向 Microsoft Partner Center 申請 EV Code Signing 憑證（需付費 + 身份驗證）。
-
-1. **使用該憑證簽署：**
-   ```powershell
-   signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 /v MyDriver.sys
-
-
-
-
-驅動必須透過 Microsoft 驗證 才能在正式 Windows 環境載入。
 
 
 ---
