@@ -100,16 +100,16 @@ Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽
    ```powershell
    bcdedit /set testsigning on
    shutdown /r /t 0
-  
+   ```
 2. **載入驅動**  
    ```powershell
    sc create MyDriver type= kernel binPath= C:\Path\To\MyDriver.sys
    sc start MyDriver
-   
+   ```
 3. **執行 Controller**  
    ```powershell
    Controller.exe
-
+   ```
 
 
 ---
