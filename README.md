@@ -1,5 +1,5 @@
 # SuperPowerShell
-This is a SuperShell, you can use this to do a lot of things
+This is a SuperPowerShell, you can use this to do a lot of things
 
 # MyDriver + Controller (Kernel Privilege Escalation Demo)
 
