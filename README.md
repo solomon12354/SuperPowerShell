@@ -65,16 +65,16 @@ Windows 64 位元系統 禁止未簽章的驅動載入，因此需要簽章。
 
 啟用測試模式（見上方步驟）。
 
-建立一個自簽憑證：
+1. **建立一個自簽憑證：**
+  ```powershell
+  makecert -r -pe -ss TestCertStore -n "CN=MyDriverCert" MyDriverCert.cer
+  certmgr -add MyDriverCert.cer -s -r localMachine root
+  certmgr -add MyDriverCert.cer -s -r localMachine trustedpublisher
 
-makecert -r -pe -ss TestCertStore -n "CN=MyDriverCert" MyDriverCert.cer
-certmgr -add MyDriverCert.cer -s -r localMachine root
-certmgr -add MyDriverCert.cer -s -r localMachine trustedpublisher
 
-
-使用 SignTool 簽章：
-
-signtool sign /v /s TestCertStore /n MyDriverCert /t http://timestamp.digicert.com MyDriver.sys
+2. **使用SignTool簽章：**
+  ```powershell
+  signtool sign /v /s TestCertStore /n MyDriverCert /t http://timestamp.digicert.com MyDriver.sys
 
 
 驅動即可在測試模式下正常載入。
@@ -83,9 +83,9 @@ signtool sign /v /s TestCertStore /n MyDriverCert /t http://timestamp.digicert.c
 
 向 Microsoft Partner Center 申請 EV Code Signing 憑證（需付費 + 身份驗證）。
 
-使用該憑證簽署：
-
-signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 /v MyDriver.sys
+**使用該憑證簽署：**
+  ```powershell
+  signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 /v MyDriver.sys
 
 
 驅動必須透過 Microsoft 驗證 才能在正式 Windows 環境載入。
