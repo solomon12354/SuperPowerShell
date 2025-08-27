@@ -83,9 +83,11 @@ Windows 64 位元系統 禁止未簽章的驅動載入，因此需要簽章。
 
 向 Microsoft Partner Center 申請 EV Code Signing 憑證（需付費 + 身份驗證）。
 
-**使用該憑證簽署：**
+1. **使用該憑證簽署：**
    ```powershell
    signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 /v MyDriver.sys
+
+
 
 
 驅動必須透過 Microsoft 驗證 才能在正式 Windows 環境載入。
