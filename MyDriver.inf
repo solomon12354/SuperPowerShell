@@ -1,0 +1,62 @@
+;
+; MyDriver.inf
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System ; TODO: specify appropriate Class
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318} ; TODO: specify appropriate ClassGuid
+Provider    = %ManufacturerName%
+CatalogFile = MyDriver.cat
+DriverVer = 08/26/2025,15.10.58.492
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+MyDriver.sys = 1,,
+
+;*****************************************
+; Install Section
+;*****************************************
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64.10.0...16299 ; %13% support introduced in build 16299
+
+[Standard.NTamd64.10.0...16299]
+%MyDriver.DeviceDesc% = MyDriver_Device, Root\MyDriver ; TODO: edit hw-id
+
+[MyDriver_Device.NT]
+CopyFiles = File_Copy
+
+[File_Copy]
+MyDriver.sys
+
+;-------------- Service installation
+[MyDriver_Device.NT.Services]
+AddService = MyDriver,%SPSVCINST_ASSOCSERVICE%, MyDriver_Service_Inst
+
+; -------------- MyDriver driver install sections
+[MyDriver_Service_Inst]
+DisplayName    = %MyDriver.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %13%\MyDriver.sys
+
+[MyDriver_Device.NT.Wdf]
+KmdfService = MyDriver, MyDriver_wdfsect
+
+[MyDriver_wdfsect]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ManufacturerName = "<Your manufacturer name>" ;TODO: Replace with your manufacturer name
+DiskName = "MyDriver Installation Disk"
+MyDriver.DeviceDesc = "MyDriver Device"
+MyDriver.SVCDESC = "MyDriver Service"
