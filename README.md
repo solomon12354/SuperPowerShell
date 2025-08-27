@@ -114,6 +114,16 @@ Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽
 
 ---
 
+## 對照圖
+
+<img src="https://raw.githubusercontent.com/solomon12354/SuperShell/refs/heads/main/power.JPG"></img>
+這個是一般以Administrator權限時開啟powershell的權限。
+
+<img src="https://raw.githubusercontent.com/solomon12354/SuperShell/refs/heads/main/super.JPG"></img>
+這個是我們的supershell所得到的權限，大部分都是Enabled。
+
+---
+
 ## ⚠️ 注意事項
 
 本專案 僅限教育與研究用途，請勿用於實際攻擊行為。
@@ -229,6 +239,17 @@ sc start MyDriver
 ```powershell
 Controller.exe
 ```
+
+---
+
+## Comparison Images
+
+<img src="https://raw.githubusercontent.com/solomon12354/SuperShell/refs/heads/main/power.JPG"></img>
+This shows the privileges when opening PowerShell with normal Administrator rights.
+
+<img src="https://raw.githubusercontent.com/solomon12354/SuperShell/refs/heads/main/super.JPG"></img>
+This shows the privileges obtained by our SuperShell, where most privileges are Enabled.
+
 
 ---
 
