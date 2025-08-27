@@ -43,7 +43,7 @@ Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽
 ### 1. 開啟 PowerShell（以系統管理員執行）
 ### 2. 建立自簽名憑證
 ####  建立自簽名憑證 (Code Signing)
-     ```powershell
+
      $cert = New-SelfSignedCertificate `
          -Type CodeSigningCert `
          -Subject "CN=MyDriverCert" `
@@ -55,11 +55,11 @@ Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽
 
 ### 3. 匯出成 PFX 檔案
 #### 請設定自己的安全密碼
-     ```powershell
+
      $pwd = ConvertTo-SecureString -String "輸入你的密碼" -Force -AsPlainText
 
 #### 匯出 PFX 檔案
-     ```powershell
+
      Export-PfxCertificate -Cert $cert -FilePath "C:\Path\To\MyDriver.pfx" -Password $pwd
 
 
@@ -77,12 +77,12 @@ Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽
 
 ### 5. 使用 SignTool 簽署驅動
 
-     ```powershell
+
      signtool sign /v /f C:\Path\To\MyDriver.pfx /p "你的密碼" /tr http://timestamp.digicert.com /td sha256 /fd sha256 MyDriver.sys
 
 ### 6. 驗證簽章
 
-     ```powershell
+
      signtool verify /kp /v MyDriver.sys
 
 
