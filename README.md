@@ -121,3 +121,119 @@ Windows 64 位元系統禁止未簽章的驅動載入，因此我們需要自簽
 驅動程式中的 Token 偏移 (0x248, 0x40) 與 Windows 版本有關，版本不符可能導致 BSOD 藍屏。
 
 在正式環境，Windows 會強制要求簽章並通過 Microsoft 驗證，否則無法載入。
+
+
+
+# SuperShell
+This is a SuperShell, you can use this to do a lot of things
+
+# MyDriver + Controller (Kernel Privilege Escalation Demo)
+
+## 📖 Project Overview
+This is an educational example demonstrating a **Windows Kernel-Mode Driver** combined with a **User-Mode Controller**.  
+The goal of this project is to show **how to communicate with a Kernel Driver via IOCTL and manipulate a target process's Token privileges**.
+
+- **MyDriver.sys**  
+  - A simple Kernel Driver  
+  - Provides an IOCTL interface for a User-mode app to pass a target PID  
+  - Uses `PsLookupProcessByProcessId` to locate the target `EPROCESS`  
+  - Modifies the `_SEP_TOKEN_PRIVILEGES` bits → gives the target process SYSTEM-level privileges  
+
+- **Controller.exe**  
+  - User-mode application  
+  - Creates a target process (e.g., PowerShell) in **suspended mode**  
+  - Sends the PID to the driver via `DeviceIoControl`  
+  - The driver modifies privileges, then resumes the thread → target process runs as SYSTEM  
+
+---
+
+## 🛠️ Compilation Instructions
+
+### 1. Driver.sys
+1. Use **Visual Studio + WDK (Windows Driver Kit)** to create a Kernel Driver project  
+2. Add `MyDriver.c` to the project  
+3. Set the target platform to **x64 (Release)**  
+4. Build to produce `MyDriver.sys`  
+
+### 2. Controller.exe
+1. Use **Visual Studio (any C/C++ project)**  
+2. Add `Controller.c` to the project  
+3. Build to produce `Controller.exe`  
+
+---
+
+## 🔑 Create a Self-Signed Test Certificate (.pfx)
+
+Windows 64-bit requires signed drivers. We can use a self-signed certificate for testing.
+
+### 1. Open PowerShell as Administrator
+
+### 2. Create a Self-Signed Certificate
+```powershell
+$cert = New-SelfSignedCertificate `
+    -Type CodeSigningCert `
+    -Subject "CN=MyDriverCert" `
+    -KeyUsage DigitalSignature `
+    -CertStoreLocation "Cert:\LocalMachine\My"
+```
+This creates a test certificate in the local **My** certificate store.
+
+### 3. Export to PFX File
+Set your own secure password:
+```powershell
+$pwd = ConvertTo-SecureString -String "YourPasswordHere" -Force -AsPlainText
+```
+
+Export the PFX:
+```powershell
+Export-PfxCertificate -Cert $cert -FilePath "C:\Path\To\MyDriver.pfx" -Password $pwd
+```
+
+> Note: Do not commit your password to GitHub.
+
+### 4. Install the Certificate
+Import the PFX into:
+- Trusted Root Certification Authorities  
+- Trusted Publishers  
+
+You can do this via PowerShell or `certmgr.msc` GUI.
+
+### 5. Sign the Driver
+```powershell
+signtool sign /v /f C:\Path\To\MyDriver.pfx /p "YourPasswordHere" /tr http://timestamp.digicert.com /td sha256 /fd sha256 MyDriver.sys
+```
+
+### 6. Verify the Signature
+```powershell
+signtool verify /kp /v MyDriver.sys
+```
+If it says `Successfully verified`, the driver is properly signed and can be loaded in test mode.
+
+---
+
+## 🚀 Execution Steps
+
+1. **Enable Test Mode (for educational purposes only)**  
+```powershell
+bcdedit /set testsigning on
+shutdown /r /t 0
+```
+
+2. **Load the Driver**  
+```powershell
+sc create MyDriver type= kernel binPath= C:\Path\To\MyDriver.sys
+sc start MyDriver
+```
+
+3. **Run Controller**  
+```powershell
+Controller.exe
+```
+
+---
+
+## ⚠️ Notes
+
+- This project is for educational and research purposes only. Do not use it for real attacks.  
+- Token offsets (0x248, 0x40) depend on the Windows version; incorrect offsets may cause BSOD.  
+- On production systems, Windows requires a proper driver signature verified by Microsoft; unsigned drivers cannot be loaded.
